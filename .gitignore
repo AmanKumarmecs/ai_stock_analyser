@@ -1,0 +1,14 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+node_modules/
+frontend/dist/
+backend/data/
+backend/models/*.joblib
+backend/models/*.pkl
+.env
+.env.*
+!.env.example
+!.env.production.example
+.DS_Store

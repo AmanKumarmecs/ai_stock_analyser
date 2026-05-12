@@ -1,0 +1,2 @@
+Frontend dependencies are pinned to Tailwind CSS 3.4.17 to match postcss.config.js and @tailwind directives.
+If you already installed node_modules, delete frontend/node_modules and frontend/package-lock.json, then run npm install again.
