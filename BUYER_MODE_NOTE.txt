@@ -1,0 +1,27 @@
+Buyer-Safe Frontend Mode
+========================
+
+This version removes programmer-facing and clone-revealing language from the public website.
+
+What was removed from the visible site:
+- Version number labels
+- Hosting/database/training platform names
+- Backend/deployment wording
+- Detailed endpoint/training references
+- Technical indicator names such as exact internal trend-strength formulas
+- Public auto-learning/cron/GitHub/Kaggle-style wording
+- Raw technical error messages
+
+What remains visible:
+- Simple stock search
+- Bullish / Bearish / Neutral result
+- Next trading day outlook
+- Next 5 trading day outlook
+- Confidence level
+- Risk level
+- Past accuracy check
+- Plain-language reasons
+- Educational disclaimer
+
+Important security note:
+A public frontend can never fully hide API calls because browser JavaScript is visible to users. For real commercial protection, keep the repository private and keep core logic/model code on the backend only.

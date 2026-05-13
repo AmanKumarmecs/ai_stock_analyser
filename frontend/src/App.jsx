@@ -3,7 +3,6 @@ import {
   Activity,
   AlertCircle,
   BarChart3,
-  BrainCircuit,
   CheckCircle2,
   Gauge,
   RefreshCcw,
@@ -13,12 +12,13 @@ import {
   TrendingDown,
   TrendingUp,
 } from 'lucide-react'
-import { analyzeStock, getDefaultSymbols, getLearningStatus, getModelStatus, runDailyLearningCycle } from './api'
+import { analyzeStock, getDefaultSymbols } from './api'
 import MetricCard from './components/MetricCard'
 import StockChart from './components/StockChart'
 import ReasonPanel from './components/ReasonPanel'
 import IndicatorTable from './components/IndicatorTable'
 import Disclaimer from './components/Disclaimer'
+import { cleanPublicText } from './publicText'
 
 const trendTone = {
   Bullish: 'good',
@@ -108,20 +108,20 @@ function BacktestPanel({ prediction }) {
       <div className="mb-4 flex items-center gap-2">
         <BarChart3 className="text-slate-700" />
         <div>
-          <h2 className="text-lg font-black text-slate-950">Backtest Accuracy</h2>
-          <p className="text-sm text-slate-500">Holdout result for {prediction.title}</p>
+          <h2 className="text-lg font-black text-slate-950">Historical Accuracy Check</h2>
+          <p className="text-sm text-slate-500">Past performance check for this type of signal</p>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <SmallStat label="All signals" value={bt.accuracy_all_signals !== null ? `${bt.accuracy_all_signals}%` : '-'} />
-        <SmallStat label="Confident only" value={bt.accuracy_confident_only !== null ? `${bt.accuracy_confident_only}%` : '-'} />
+        <SmallStat label="All results" value={bt.accuracy_all_signals !== null ? `${bt.accuracy_all_signals}%` : '-'} />
+        <SmallStat label="Strong signals" value={bt.accuracy_confident_only !== null ? `${bt.accuracy_confident_only}%` : '-'} />
         <SmallStat label="Coverage" value={bt.confident_signal_coverage !== null ? `${bt.confident_signal_coverage}%` : '-'} />
-        <SmallStat label="Test samples" value={bt.test_samples} sub={`${bt.confident_samples || 0} confident`} />
+        <SmallStat label="Past checks" value={bt.test_samples} sub={`${bt.confident_samples || 0} confident`} />
       </div>
 
       <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">
-        {bt.note}
+        {cleanPublicText(bt.note)}
       </p>
     </div>
   )
@@ -134,32 +134,32 @@ function MarketContext({ market }) {
       <div className="mb-4 flex items-center gap-2">
         <Activity className="text-slate-700" />
         <div>
-          <h2 className="text-lg font-black text-slate-950">Market Context</h2>
-          <p className="text-sm text-slate-500">NIFTY 50 used to adjust confidence</p>
+          <h2 className="text-lg font-black text-slate-950">Overall Market Mood</h2>
+          <p className="text-sm text-slate-500">Broad market movement considered in the result</p>
         </div>
       </div>
 
       {market.available ? (
         <>
           <div className="grid grid-cols-2 gap-2">
-            <SmallStat label="NIFTY Trend" value={market.trend} />
+            <SmallStat label="Market Trend" value={market.trend} />
             <SmallStat label="Close" value={formatCurrency(market.close)} />
             <SmallStat label="Day Change" value={formatPercent(market.change_percent)} />
-            <SmallStat label="RSI 14" value={market.rsi14} />
-            <SmallStat label="ADX 20" value={market.adx20} />
-            <SmallStat label="DMI Spread" value={market.dmi20_spread} />
+            <SmallStat label="Momentum Score" value={market.rsi14} />
+            <SmallStat label="Trend Strength" value={market.adx20} />
+            <SmallStat label="Direction Strength" value={market.dmi20_spread} />
           </div>
           <ul className="mt-3 space-y-2">
             {(market.reasons || []).slice(0, 3).map((reason) => (
-              <li key={reason} className="rounded-2xl bg-slate-50 p-3 text-sm leading-6 text-slate-700">
-                {reason}
+              <li key={cleanPublicText(reason)} className="rounded-2xl bg-slate-50 p-3 text-sm leading-6 text-slate-700">
+                {cleanPublicText(reason)}
               </li>
             ))}
           </ul>
         </>
       ) : (
         <div className="rounded-2xl bg-amber-50 p-3 text-sm leading-6 text-amber-900">
-          {(market.reasons || [])[0] || 'NIFTY 50 context unavailable.'}
+          {(market.reasons || [])[0] || 'Market context unavailable.'}
         </div>
       )}
     </div>
@@ -167,77 +167,12 @@ function MarketContext({ market }) {
 }
 
 
-function AutoLearningPanel({ status, running, message, onRun }) {
-  const lastRun = status?.last_run
-  const recent = status?.recent_predictions || []
-  return (
-    <div className="rounded-3xl border border-indigo-100 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-center gap-2">
-        <BrainCircuit className="text-indigo-600" />
-        <div>
-          <h2 className="text-lg font-black text-slate-950">Auto Daily Learning</h2>
-          <p className="text-sm text-slate-500">Stores predictions, checks actual results, prunes DB, and uses GitHub Actions/Kaggle-trained models</p>
-        </div>
-      </div>
-      {message ? (
-        <div className="mb-3 rounded-2xl bg-indigo-50 p-3 text-sm leading-6 text-indigo-900">
-          {message}
-        </div>
-      ) : null}
-      <div className="grid grid-cols-2 gap-2">
-        <SmallStat label="Evaluated" value={status?.evaluated_predictions ?? 0} sub="Predictions checked" />
-        <SmallStat label="Correct" value={status?.correct_predictions ?? 0} sub={status?.learning_accuracy !== null && status?.learning_accuracy !== undefined ? `${status.learning_accuracy}% learning accuracy` : 'Waiting for actuals'} />
-        <SmallStat label="Pending" value={status?.pending_predictions ?? 0} sub="Waiting for future close" />
-        <SmallStat label="Total Saved" value={status?.total_predictions ?? 0} sub="Prediction records" />
-      </div>
-      <button
-        onClick={onRun}
-        disabled={running}
-        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-3 text-sm font-black text-white shadow-sm transition hover:bg-indigo-500 disabled:opacity-60"
-      >
-        {running ? <RefreshCcw className="animate-spin" size={16} /> : <BrainCircuit size={16} />}
-        {running ? 'Running daily learning...' : 'Run daily learning now'}
-      </button>
-      <p className="mt-2 text-xs leading-5 text-slate-500">
-        The backend also has a scheduler that runs once per IST day after market close when the server is alive. On free hosting, use a cron ping because sleeping servers cannot run background jobs.
-      </p>
-      {lastRun ? (
-        <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">
-          Last run: <b>{lastRun.run_at}</b> · Processed {lastRun.symbols_processed} symbols · Evaluated {lastRun.predictions_evaluated} predictions · Runtime-trained {lastRun.models_trained} models.
-        </p>
-      ) : null}
-      {recent.length ? (
-        <div className="mt-3 overflow-hidden rounded-2xl border border-slate-100">
-          <div className="grid grid-cols-5 bg-slate-50 px-3 py-2 text-[11px] font-black uppercase text-slate-500">
-            <span>Date</span><span>Horizon</span><span>Pred</span><span>Actual</span><span>Status</span>
-          </div>
-          {recent.slice(0, 5).map((row) => (
-            <div key={`${row.id}`} className="grid grid-cols-5 border-t border-slate-100 px-3 py-2 text-xs text-slate-700">
-              <span>{row.predicted_on_date}</span>
-              <span>{row.horizon_key === 'next_day' ? '1D' : '5D'}</span>
-              <span>{row.predicted_trend}</span>
-              <span>{row.actual_trend || '-'}</span>
-              <span className={row.status === 'evaluated' ? (row.is_correct ? 'text-emerald-700 font-bold' : 'text-rose-700 font-bold') : 'text-amber-700 font-bold'}>
-                {row.status === 'evaluated' ? (row.is_correct ? 'Correct' : 'Wrong') : 'Pending'}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
 export default function App() {
   const [symbol, setSymbol] = useState('RELIANCE.NS')
   const [symbols, setSymbols] = useState([])
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [dailyRunning, setDailyRunning] = useState(false)
-  const [learningMessage, setLearningMessage] = useState('')
-  const [modelStatus, setModelStatus] = useState(null)
-  const [learningStatus, setLearningStatus] = useState(null)
 
   useEffect(() => {
     getDefaultSymbols()
@@ -249,52 +184,14 @@ export default function App() {
   async function runAnalysis(customSymbol = symbol) {
     setLoading(true)
     setError('')
-    setLearningMessage('')
     try {
       const res = await analyzeStock(customSymbol)
       setData(res)
       setSymbol(res.symbol)
-      try {
-        const status = await getModelStatus(res.symbol)
-        setModelStatus(status)
-      } catch {
-        setModelStatus(null)
-      }
-      try {
-        const learning = await getLearningStatus(res.symbol)
-        setLearningStatus(learning)
-      } catch {
-        setLearningStatus(res.learning || null)
-      }
     } catch (err) {
-      setError(err.message || 'Something went wrong')
+      setError('Market analysis could not be loaded right now')
     } finally {
       setLoading(false)
-    }
-  }
-
-  async function runAutoLearningNow() {
-    const target = data?.symbol || symbol
-    setDailyRunning(true)
-    setError('')
-    setLearningMessage('Daily check started. It will check old predictions, prune old DB rows, and save a fresh prediction. Model retraining runs through GitHub Actions/Kaggle.')
-    try {
-      const result = await runDailyLearningCycle(target)
-      const status = await getModelStatus(target)
-      const learning = await getLearningStatus(target)
-      setModelStatus(status)
-      setLearningStatus(learning)
-      await runAnalysis(target)
-      const item = result.symbols?.[target] || result.symbols?.[data?.symbol] || null
-      setLearningMessage(
-        item
-          ? `Daily check completed: evaluated ${item.evaluated || 0}, runtime-trained ${item.trained_models || 0} models, saved ${item.saved_predictions || 0} predictions.`
-          : 'Daily check completed. The model will use the latest GitHub Actions/Kaggle model package when available.'
-      )
-    } catch (err) {
-      setError(err.message || 'Daily learning failed')
-    } finally {
-      setDailyRunning(false)
     }
   }
 
@@ -311,23 +208,22 @@ export default function App() {
           <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-black text-white">
-                <Sparkles size={14} /> Version 9 · Free deployment-ready seller demo
+                <Sparkles size={14} /> Smart market analysis platform
               </div>
               <h1 className="text-4xl font-black tracking-tight text-slate-950 md:text-6xl">
                 AI NSE Stock Analyzer
               </h1>
               <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-600 md:text-base">
-                Bullish, Bearish or Neutral prediction with Neon DB learning logs, GitHub Actions/Kaggle-trained model pack, confidence filtering, next trading day view,
-                next 5 trading day trend, DMI/ADX trend-strength analysis, backtest accuracy, and NIFTY 50 market context.
+                Search a stock to see a simple Bullish, Bearish or Neutral outlook, next trading day view, next 5 trading day trend, confidence level, risk level, and easy-to-understand reasons.
               </p>
 
               <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold text-slate-600">
                 <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">Bullish / Bearish / Neutral</span>
-                <span className="rounded-full bg-blue-50 px-3 py-1 text-blue-700">Backtest accuracy</span>
+                <span className="rounded-full bg-blue-50 px-3 py-1 text-blue-700">Past accuracy check</span>
                 <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-700">Confidence filter</span>
-                <span className="rounded-full bg-purple-50 px-3 py-1 text-purple-700">NIFTY 50 context</span>
-                <span className="rounded-full bg-cyan-50 px-3 py-1 text-cyan-700">DMI / ADX trend strength</span>
-                <span className="rounded-full bg-rose-50 px-3 py-1 text-rose-700">Auto daily learning</span>
+                <span className="rounded-full bg-purple-50 px-3 py-1 text-purple-700">Market context</span>
+                <span className="rounded-full bg-cyan-50 px-3 py-1 text-cyan-700">Trend strength</span>
+                <span className="rounded-full bg-rose-50 px-3 py-1 text-rose-700">Daily updates</span>
               </div>
             </div>
 
@@ -345,7 +241,7 @@ export default function App() {
                 />
                 <button
                   onClick={() => runAnalysis()}
-                  disabled={loading || dailyRunning}
+                  disabled={loading}
                   className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white shadow-sm transition hover:bg-slate-700 disabled:opacity-60"
                 >
                   {loading ? <RefreshCcw className="animate-spin" size={16} /> : <Search size={16} />}
@@ -364,18 +260,6 @@ export default function App() {
                   </button>
                 ))}
               </div>
-
-              <button
-                onClick={runAutoLearningNow}
-                disabled={dailyRunning || loading}
-                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-3 text-sm font-black text-white shadow-sm transition hover:bg-indigo-500 disabled:opacity-60"
-              >
-                {dailyRunning ? <RefreshCcw className="animate-spin" size={16} /> : <BrainCircuit size={16} />}
-                {dailyRunning ? 'Running daily learning...' : 'Run auto learning now'}
-              </button>
-              <p className="mt-2 text-xs leading-5 text-slate-500">
-                Auto learning checks previous predictions against actual close, prunes old free-tier data, and stores today’s fresh prediction. Daily model retraining is done by GitHub Actions/Kaggle.
-              </p>
             </div>
           </div>
         </header>
@@ -385,7 +269,7 @@ export default function App() {
             <AlertCircle className="mt-0.5" size={18} />
             <div>
               <div className="font-bold">Could not load analysis</div>
-              <div className="text-sm">{error}</div>
+              <div className="text-sm">Market analysis could not be loaded right now. Please try again after a few seconds.</div>
             </div>
           </div>
         ) : null}
@@ -393,7 +277,7 @@ export default function App() {
         {loading && !data ? (
           <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
             <RefreshCcw className="mx-auto mb-4 animate-spin text-slate-700" size={30} />
-            <div className="text-lg font-bold">Fetching data and running Version 9 free-stack analysis...</div>
+            <div className="text-lg font-bold">Fetching latest market data and preparing analysis...</div>
             <div className="text-sm text-slate-500">This can take a few seconds for the first request.</div>
           </div>
         ) : null}
@@ -438,7 +322,6 @@ export default function App() {
               <StockChart data={data.chart} />
               <div className="space-y-5">
                 <MarketContext market={data.market_context} />
-                <AutoLearningPanel status={learningStatus || data.learning} message={learningMessage} running={dailyRunning} onRun={runAutoLearningNow} />
                 <BacktestPanel prediction={nextDay} />
               </div>
             </section>
@@ -449,19 +332,19 @@ export default function App() {
                 <div className="mb-4 flex items-center gap-2">
                   <CheckCircle2 className="text-emerald-600" />
                   <div>
-                    <h2 className="text-lg font-black text-slate-950">Seller Demo Notes</h2>
-                    <p className="text-sm text-slate-500">How to explain this version</p>
+                    <h2 className="text-lg font-black text-slate-950">User Notes</h2>
+                    <p className="text-sm text-slate-500">Important points</p>
                   </div>
                 </div>
                 <div className="space-y-3 text-sm leading-6 text-slate-700">
                   <p className="rounded-2xl bg-slate-50 p-3">
-                    This version does not force a prediction every time. If confidence is weak, it gives <b>Neutral/Avoid</b>.
+                    The system does not force a prediction every time. If the signal is weak, it gives <b>Neutral/Avoid</b>.
                   </p>
                   <p className="rounded-2xl bg-slate-50 p-3">
-                    Accuracy shown here is a demo holdout backtest from historical data, not a guaranteed future result. DMI/ADX helps reduce weak-trend false signals but cannot guarantee profit.
+                    Past accuracy shown here is only a historical check, not a guarantee of future results. The system uses trend strength to reduce weak signals, but profit is never guaranteed.
                   </p>
                   <p className="rounded-2xl bg-slate-50 p-3">
-                    Free automatic public market data is used for demo. Official NSE/vendor feed can be connected later.
+                    A licensed market data connection can be added later for commercial-grade usage.
                   </p>
                 </div>
               </div>
@@ -475,9 +358,9 @@ export default function App() {
             <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="mb-3 flex items-center gap-2">
                 <ShieldCheck className="text-slate-700" />
-                <h2 className="text-lg font-black text-slate-950">Data Mode</h2>
+                <h2 className="text-lg font-black text-slate-950">Data Update</h2>
               </div>
-              <p className="text-sm leading-6 text-slate-600">{data.data_source_note}</p>
+              <p className="text-sm leading-6 text-slate-600">{cleanPublicText(data.data_source_note || "The system uses the latest available market data to prepare the analysis.")}</p>
             </section>
 
             <Disclaimer />
