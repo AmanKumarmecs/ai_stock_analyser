@@ -1,0 +1,66 @@
+name: Daily model retraining
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 12:00 UTC = 17:30 IST, after normal NSE market close and public data delay.
+    - cron: "0 12 * * 1-5"
+
+permissions:
+  contents: write
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Add DATABASE_URL as a GitHub secret. It is optional for model training,
+      # but required if you want this workflow to prune Neon daily.
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      MODEL_MAX_MB: "95"
+      TRAIN_PERIOD: "5y"
+      TRAIN_SYMBOLS: "RELIANCE,TCS,INFY,HDFCBANK,ICICIBANK,SBIN,ITC,TATAMOTORS"
+      DB_KEEP_DAYS: "90"
+      DB_MAX_ROWS_PER_SYMBOL: "140"
+      DB_MAX_TOTAL_ROWS: "2500"
+      ENABLE_RUNTIME_TRAINING: "false"
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: "backend/requirements.txt"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Train compact model pack and prune DB
+        run: |
+          python backend/scripts/train_model_pack.py --period "$TRAIN_PERIOD" --symbols "$TRAIN_SYMBOLS" --max-mb "$MODEL_MAX_MB"
+
+      - name: Show model size
+        run: |
+          ls -lh backend/models || true
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('backend/models/model_pack.joblib')
+          if p.exists():
+              print(f"model_pack.joblib size: {p.stat().st_size / (1024*1024):.2f} MB")
+          PY
+
+      - name: Commit updated model pack
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add backend/models/model_pack.joblib backend/models/model_manifest.json backend/models/.gitkeep
+          git commit -m "Daily retrain model pack" || echo "No model changes to commit"
+          git push

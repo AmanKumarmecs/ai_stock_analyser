@@ -9,6 +9,7 @@ from app.services.daily_learning import (
     evaluate_pending_predictions,
     get_learning_status,
     run_daily_learning_cycle,
+    prune_learning_data,
     save_prediction_from_analysis,
     start_daily_scheduler,
 )
@@ -18,8 +19,8 @@ from app.services.predictor import analyze_stock, get_training_status, train_mod
 
 app = FastAPI(
     title="AI NSE Stock Analyzer API",
-    description="Version 8 deployment-ready API: Neon/PostgreSQL support, auto-learning, and daily retraining.",
-    version="8.0.0",
+    description="Version 9 free-stack API: Koyeb backend, Neon DB, Netlify frontend, GitHub Actions/Kaggle model training, and automatic data pruning.",
+    version="9.0.0",
 )
 
 origins_raw = os.getenv("ALLOWED_ORIGINS", "*").strip()
@@ -42,12 +43,29 @@ def startup_event():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "message": "AI NSE Stock Analyzer API v8 deployment-ready auto-learning is running"}
+    return {"status": "ok", "message": "AI NSE Stock Analyzer API v9 free-stack deployment is running"}
 
 
 @app.get("/api/default-symbols")
 def default_symbols():
     return {"symbols": DEFAULT_SYMBOLS}
+
+
+@app.get("/api/system/limits")
+def system_limits():
+    return {
+        "version": "v9",
+        "backend_target": "Koyeb Free",
+        "database_target": "Neon Free",
+        "frontend_target": "Netlify Free",
+        "training_target": "GitHub Actions public repo + Kaggle Notebook",
+        "runtime_training_enabled": os.getenv("ENABLE_RUNTIME_TRAINING", "false").lower() in {"1", "true", "yes"},
+        "model_max_mb": float(os.getenv("MODEL_MAX_MB", "95")),
+        "db_keep_days": int(os.getenv("DB_KEEP_DAYS", "90")),
+        "db_max_rows_per_symbol": int(os.getenv("DB_MAX_ROWS_PER_SYMBOL", "140")),
+        "db_max_total_rows": int(os.getenv("DB_MAX_TOTAL_ROWS", "2500")),
+        "note": "The free backend is designed for inference/evaluation. Daily model training should run through GitHub Actions or Kaggle and produce backend/models/model_pack.joblib under 100 MB.",
+    }
 
 
 @app.get("/api/quote/{symbol}")
@@ -84,13 +102,28 @@ def manual_daily_cycle(symbols: str | None = Query(default=None, description="Op
         raise HTTPException(status_code=500, detail=f"Daily learning cycle failed: {exc}") from exc
 
 
+@app.post("/api/learning/prune")
+def prune_learning_store():
+    try:
+        return prune_learning_data()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Prune failed: {exc}") from exc
+
+
 @app.post("/api/train/{symbol}")
 def train_symbol(
     symbol: str,
     period: str = Query(default="5y", description="Training period. Use 2y, 5y or max depending on free data availability."),
     interval: str = Query(default="1d", description="Daily data is recommended for stable training."),
 ):
-    # Manual training is kept as a fallback. Version 7 also trains automatically in the daily cycle.
+    # Runtime training is disabled by default for Koyeb Free because 512 MB / 0.1 vCPU is too small.
+    # Use GitHub Actions or Kaggle training instead. Enable only locally with ENABLE_RUNTIME_TRAINING=true.
+    if os.getenv("ENABLE_RUNTIME_TRAINING", "false").strip().lower() not in {"1", "true", "yes"}:
+        return {
+            "trained": False,
+            "runtime_training_enabled": False,
+            "message": "Runtime training is disabled for the free backend. Use GitHub Actions/Kaggle to create backend/models/model_pack.joblib.",
+        }
     try:
         normalized = normalize_symbol(symbol)
         history = fetch_history(normalized, period=period, interval=interval)
@@ -135,7 +168,7 @@ def analyze(
         evaluated = evaluate_pending_predictions(normalized, enriched)
 
         analysis = analyze_stock(enriched, normalized, market_df=market_enriched)
-        analysis["version"] = "v8"
+        analysis["version"] = "v9"
         analysis["chart"] = to_chart_rows(enriched, limit=180)
 
         # Save today's prediction automatically. This becomes tomorrow/five-day training feedback.
@@ -148,7 +181,7 @@ def analyze(
         analysis["data_source_note"] = (
             "Automatic free public data source for NSE-listed symbols. "
             "Not an official NSE real-time licensed feed. For commercial production, connect a licensed NSE/vendor feed. "
-            "Version 8 can store predictions in Neon/PostgreSQL through DATABASE_URL, compares actual future close once available, and retrains in the daily auto-learning cycle. "
+            "Version 9 stores predictions in Neon/PostgreSQL, compares actual future close once available, prunes old rows automatically, and uses GitHub Actions/Kaggle-trained model packs. "
             + market_note
         )
         return analysis

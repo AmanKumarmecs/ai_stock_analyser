@@ -1,33 +1,11 @@
-# AI NSE Stock Analyzer v8 Deployment Notes
+Use `DEPLOYMENT_FREE_STACK.md` for the current v9 deployment flow.
 
-Recommended free stack:
+Summary:
 
-- Frontend: Netlify
-- Backend API: Oracle Cloud Always Free VM
-- Database: Neon Postgres free plan
-- Daily automation: Linux cron on Oracle VM
-- Model files: Oracle VM `/opt/ai-nse-stock-analyzer/models`
-
-## Backend environment variables
-
-Create `/opt/ai-nse-stock-analyzer/backend/.env` or set variables in the systemd service:
-
-```bash
-DATABASE_URL='postgresql://USER:PASSWORD@HOST.neon.tech/DBNAME?sslmode=require'
-ALLOWED_ORIGINS='https://your-site.netlify.app'
-MODEL_DIR='/opt/ai-nse-stock-analyzer/models'
-```
-
-## Start backend manually
-
-```bash
-cd /opt/ai-nse-stock-analyzer/backend
-source .venv/bin/activate
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-## Cron command
-
-```bash
-10 16 * * 1-5 curl -s -X POST http://127.0.0.1:8000/api/learning/daily-cycle >> /opt/ai-nse-stock-analyzer/cron.log 2>&1
-```
+1. Push repo to GitHub public repo.
+2. Add Neon `DATABASE_URL` to GitHub Actions secrets.
+3. Run GitHub Actions workflow once to generate `backend/models/model_pack.joblib`.
+4. Deploy backend on Koyeb Free with root directory `backend` and Dockerfile.
+5. Deploy frontend on Netlify Free with base directory `frontend`.
+6. Add `VITE_API_BASE_URL` in Netlify pointing to your Koyeb URL.
+7. Set `ALLOWED_ORIGINS` in Koyeb to your Netlify URL.

@@ -1,0 +1,8 @@
+{
+  "version": "v9-free-stack-model-pack",
+  "trained_at": null,
+  "model_pack_file": "model_pack.joblib",
+  "model_pack_size_mb": 0,
+  "free_limit_status": "not_trained_yet",
+  "note": "Run GitHub Actions workflow or Kaggle notebook to generate model_pack.joblib under 100 MB."
+}

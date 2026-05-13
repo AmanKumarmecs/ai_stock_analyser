@@ -7,6 +7,9 @@ frontend/dist/
 backend/data/
 backend/models/*.joblib
 backend/models/*.pkl
+!backend/models/model_pack.joblib
+!backend/models/model_manifest.json
+!backend/models/.gitkeep
 .env
 .env.*
 !.env.example

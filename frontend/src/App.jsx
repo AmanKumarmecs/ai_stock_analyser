@@ -176,7 +176,7 @@ function AutoLearningPanel({ status, running, message, onRun }) {
         <BrainCircuit className="text-indigo-600" />
         <div>
           <h2 className="text-lg font-black text-slate-950">Auto Daily Learning</h2>
-          <p className="text-sm text-slate-500">Stores predictions, checks actual results, then retrains daily</p>
+          <p className="text-sm text-slate-500">Stores predictions, checks actual results, prunes DB, and uses GitHub Actions/Kaggle-trained models</p>
         </div>
       </div>
       {message ? (
@@ -203,7 +203,7 @@ function AutoLearningPanel({ status, running, message, onRun }) {
       </p>
       {lastRun ? (
         <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">
-          Last run: <b>{lastRun.run_at}</b> · Processed {lastRun.symbols_processed} symbols · Evaluated {lastRun.predictions_evaluated} predictions · Trained {lastRun.models_trained} models.
+          Last run: <b>{lastRun.run_at}</b> · Processed {lastRun.symbols_processed} symbols · Evaluated {lastRun.predictions_evaluated} predictions · Runtime-trained {lastRun.models_trained} models.
         </p>
       ) : null}
       {recent.length ? (
@@ -277,7 +277,7 @@ export default function App() {
     const target = data?.symbol || symbol
     setDailyRunning(true)
     setError('')
-    setLearningMessage('Daily learning started. It will check old predictions, retrain models, and save a fresh prediction...')
+    setLearningMessage('Daily check started. It will check old predictions, prune old DB rows, and save a fresh prediction. Model retraining runs through GitHub Actions/Kaggle.')
     try {
       const result = await runDailyLearningCycle(target)
       const status = await getModelStatus(target)
@@ -288,8 +288,8 @@ export default function App() {
       const item = result.symbols?.[target] || result.symbols?.[data?.symbol] || null
       setLearningMessage(
         item
-          ? `Daily learning completed: evaluated ${item.evaluated || 0}, trained ${item.trained_models || 0} models, saved ${item.saved_predictions || 0} predictions.`
-          : 'Daily learning completed. The model will use the updated saved training package.'
+          ? `Daily check completed: evaluated ${item.evaluated || 0}, runtime-trained ${item.trained_models || 0} models, saved ${item.saved_predictions || 0} predictions.`
+          : 'Daily check completed. The model will use the latest GitHub Actions/Kaggle model package when available.'
       )
     } catch (err) {
       setError(err.message || 'Daily learning failed')
@@ -311,13 +311,13 @@ export default function App() {
           <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-black text-white">
-                <Sparkles size={14} /> Version 7 · Auto-learning seller demo
+                <Sparkles size={14} /> Version 9 · Free deployment-ready seller demo
               </div>
               <h1 className="text-4xl font-black tracking-tight text-slate-950 md:text-6xl">
                 AI NSE Stock Analyzer
               </h1>
               <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-600 md:text-base">
-                Bullish, Bearish or Neutral prediction with automatic daily learning, saved symbol-trained ML models, confidence filtering, next trading day view,
+                Bullish, Bearish or Neutral prediction with Neon DB learning logs, GitHub Actions/Kaggle-trained model pack, confidence filtering, next trading day view,
                 next 5 trading day trend, DMI/ADX trend-strength analysis, backtest accuracy, and NIFTY 50 market context.
               </p>
 
@@ -374,7 +374,7 @@ export default function App() {
                 {dailyRunning ? 'Running daily learning...' : 'Run auto learning now'}
               </button>
               <p className="mt-2 text-xs leading-5 text-slate-500">
-                Auto learning checks previous predictions against actual close, retrains saved models, and stores today’s fresh prediction.
+                Auto learning checks previous predictions against actual close, prunes old free-tier data, and stores today’s fresh prediction. Daily model retraining is done by GitHub Actions/Kaggle.
               </p>
             </div>
           </div>
@@ -393,7 +393,7 @@ export default function App() {
         {loading && !data ? (
           <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
             <RefreshCcw className="mx-auto mb-4 animate-spin text-slate-700" size={30} />
-            <div className="text-lg font-bold">Fetching data and running Version 7 auto-learning analysis...</div>
+            <div className="text-lg font-bold">Fetching data and running Version 9 free-stack analysis...</div>
             <div className="text-sm text-slate-500">This can take a few seconds for the first request.</div>
           </div>
         ) : null}

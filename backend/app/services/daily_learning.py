@@ -280,7 +280,7 @@ def run_daily_learning_cycle(symbols: List[str] | None = None, mode: str = "manu
     target_symbols = symbols or [item["symbol"] for item in DEFAULT_SYMBOLS]
     started = _now_ist().strftime("%Y-%m-%d %H:%M:%S")
     summary: Dict[str, Any] = {
-        "version": "v8-deploy-neon-auto-learning",
+        "version": "v9-free-stack-auto-learning",
         "run_at_ist": started,
         "mode": mode,
         "database": _db_label(),
@@ -298,16 +298,24 @@ def run_daily_learning_cycle(symbols: List[str] | None = None, mode: str = "manu
         try:
             enriched, market = _fetch_stock_and_market(normalized, period="5y")
             eval_result = evaluate_pending_predictions(normalized, enriched)
-            train_result = train_models_for_symbol(enriched, normalized, market_df=market)
+            runtime_training_enabled = os.getenv("ENABLE_RUNTIME_TRAINING", "false").strip().lower() in {"1", "true", "yes"}
+            if runtime_training_enabled:
+                train_result = train_models_for_symbol(enriched, normalized, market_df=market)
+                trained_count = sum(1 for model in (train_result.get("models") or {}).values() if model.get("trained"))
+                training_note = "Runtime training enabled."
+            else:
+                trained_count = 0
+                training_note = "Runtime training skipped on free backend. GitHub Actions/Kaggle training updates backend/models/model_pack.joblib."
+
             analysis = analyze_stock(enriched, normalized, market_df=market)
             save_result = save_prediction_from_analysis(analysis)
 
-            trained_count = sum(1 for model in (train_result.get("models") or {}).values() if model.get("trained"))
             item.update(
                 {
                     "evaluated": eval_result.get("evaluated", 0),
                     "still_pending": eval_result.get("pending", 0),
                     "trained_models": trained_count,
+                    "training_note": training_note,
                     "saved_predictions": save_result.get("saved", 0),
                     "latest_date": analysis.get("latest", {}).get("date"),
                     "next_day_prediction": analysis.get("prediction", {}).get("next_day", {}).get("trend"),
@@ -323,6 +331,9 @@ def run_daily_learning_cycle(symbols: List[str] | None = None, mode: str = "manu
             item["error"] = str(exc)
             summary["errors"].append(message)
         summary["symbols"][normalized] = item
+
+    prune_result = prune_learning_data()
+    summary["prune"] = prune_result
 
     engine = _engine_instance()
     with engine.begin() as conn:
@@ -350,6 +361,74 @@ def run_daily_learning_cycle(symbols: List[str] | None = None, mode: str = "manu
         )
     return summary
 
+
+def prune_learning_data(
+    keep_days: int | None = None,
+    max_rows_per_symbol: int | None = None,
+    max_total_rows: int | None = None,
+) -> Dict[str, Any]:
+    """Keep Neon free-tier usage low by removing old evaluated rows and excess history.
+
+    Defaults are intentionally conservative for the free demo stack.
+    Pending predictions are preserved unless the global hard cap is reached.
+    """
+    keep_days = keep_days if keep_days is not None else int(os.getenv("DB_KEEP_DAYS", "90"))
+    max_rows_per_symbol = max_rows_per_symbol if max_rows_per_symbol is not None else int(os.getenv("DB_MAX_ROWS_PER_SYMBOL", "140"))
+    max_total_rows = max_total_rows if max_total_rows is not None else int(os.getenv("DB_MAX_TOTAL_ROWS", "2500"))
+
+    engine = _engine_instance()
+    deleted_old = 0
+    deleted_symbol_excess = 0
+    deleted_total_excess = 0
+    cutoff = (_now_ist() - timedelta(days=keep_days)).strftime("%Y-%m-%d")
+
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("DELETE FROM predictions WHERE status='evaluated' AND predicted_on_date < :cutoff"),
+            {"cutoff": cutoff},
+        )
+        deleted_old = int(result.rowcount or 0)
+
+        symbol_rows = conn.execute(text("SELECT DISTINCT symbol FROM predictions")).scalars().all()
+        for sym in symbol_rows:
+            ids = conn.execute(
+                text(
+                    """
+                    SELECT id FROM predictions
+                    WHERE symbol=:symbol
+                    ORDER BY predicted_on_date DESC, id DESC
+                    """
+                ),
+                {"symbol": sym},
+            ).scalars().all()
+            excess = ids[max_rows_per_symbol:]
+            if excess:
+                for row_id in excess:
+                    conn.execute(text("DELETE FROM predictions WHERE id=:id"), {"id": int(row_id)})
+                    deleted_symbol_excess += 1
+
+        total_ids = conn.execute(
+            text("SELECT id FROM predictions ORDER BY predicted_on_date DESC, id DESC")
+        ).scalars().all()
+        hard_excess = total_ids[max_total_rows:]
+        for row_id in hard_excess:
+            conn.execute(text("DELETE FROM predictions WHERE id=:id"), {"id": int(row_id)})
+            deleted_total_excess += 1
+
+        runs = conn.execute(text("SELECT id FROM learning_runs ORDER BY id DESC")).scalars().all()
+        for row_id in runs[120:]:
+            conn.execute(text("DELETE FROM learning_runs WHERE id=:id"), {"id": int(row_id)})
+
+    return {
+        "database": _db_label(),
+        "keep_days": keep_days,
+        "max_rows_per_symbol": max_rows_per_symbol,
+        "max_total_rows": max_total_rows,
+        "deleted_old_evaluated": deleted_old,
+        "deleted_symbol_excess": deleted_symbol_excess,
+        "deleted_total_excess": deleted_total_excess,
+        "note": "Old evaluated prediction rows were pruned so Neon free storage stays small.",
+    }
 
 def get_learning_status(symbol: str | None = None, limit: int = 20) -> Dict[str, Any]:
     normalized = normalize_symbol(symbol) if symbol else None
@@ -414,7 +493,7 @@ def get_learning_status(symbol: str | None = None, limit: int = 20) -> Dict[str,
         "learning_accuracy": accuracy,
         "recent_predictions": history,
         "last_run": dict(last_run) if last_run else None,
-        "note": "Auto-learning evaluates stored predictions only after the target trading day data becomes available, then retrains saved models with updated history.",
+        "note": "Auto-learning evaluates stored predictions after target data is available. Runtime retraining is skipped on free Koyeb unless ENABLE_RUNTIME_TRAINING=true; daily model training is expected through GitHub Actions/Kaggle.",
     }
 
 
@@ -444,4 +523,4 @@ def start_daily_scheduler() -> Dict[str, Any]:
 
     thread = threading.Thread(target=_loop, daemon=True, name="daily-learning-scheduler")
     thread.start()
-    return {"started": True, "message": "Daily auto-learning scheduler started. It runs after 16:10 IST when the backend is alive."}
+    return {"started": True, "message": "Daily auto-learning scheduler started. On Koyeb free, use GitHub Actions scheduled workflow because the backend can sleep."}

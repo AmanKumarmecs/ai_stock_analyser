@@ -53,6 +53,36 @@ FEATURES = [
 
 MODEL_DIR = Path(os.getenv("MODEL_DIR", str(Path(__file__).resolve().parents[2] / "models")))
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
+MODEL_PACK_PATH = MODEL_DIR / "model_pack.joblib"
+MODEL_MANIFEST_PATH = MODEL_DIR / "model_manifest.json"
+_MODEL_PACK_CACHE: Dict[str, Any] | None = None
+_MODEL_PACK_CACHE_MTIME: float | None = None
+
+
+def _load_model_pack() -> Dict[str, Any] | None:
+    """Load the deployment model pack if it exists. Cached by file mtime for Koyeb memory efficiency."""
+    global _MODEL_PACK_CACHE, _MODEL_PACK_CACHE_MTIME
+    if not MODEL_PACK_PATH.exists():
+        return None
+    try:
+        mtime = MODEL_PACK_PATH.stat().st_mtime
+        if _MODEL_PACK_CACHE is not None and _MODEL_PACK_CACHE_MTIME == mtime:
+            return _MODEL_PACK_CACHE
+        _MODEL_PACK_CACHE = joblib.load(MODEL_PACK_PATH)
+        _MODEL_PACK_CACHE_MTIME = mtime
+        return _MODEL_PACK_CACHE
+    except Exception:
+        return None
+
+
+def _pack_horizon_package(symbol: str, horizon_key: str) -> Dict[str, Any] | None:
+    pack = _load_model_pack()
+    if not pack:
+        return None
+    symbols = pack.get("symbols") or {}
+    return (symbols.get(symbol) or {}).get(horizon_key)
+
+
 MARKET_FEATURES = [
     "NIFTY_Return_1",
     "NIFTY_Return_5",
@@ -132,7 +162,7 @@ def analyze_stock(df: pd.DataFrame, symbol: str, market_df: pd.DataFrame | None 
 
     return {
         "symbol": symbol,
-        "version": "v7",
+        "version": "v9",
         "latest": {
             "date": str(latest.get("Date", ""))[:19],
             "open": _round(latest.get("Open")),
@@ -152,7 +182,7 @@ def analyze_stock(df: pd.DataFrame, symbol: str, market_df: pd.DataFrame | None 
             "support": support,
             "resistance": resistance,
             "model_note": (
-                "Version 8 uses saved symbol-trained ensemble models when available, plus technical indicators, DMI/ADX, Neutral filtering, backtest accuracy, and NIFTY 50 context."
+                "Version 9 uses GitHub Actions/Kaggle-trained model packs when available, plus technical indicators, DMI/ADX, Neutral filtering, backtest accuracy, and NIFTY 50 context."
             ),
             "confidence_filter": "Bullish/Bearish is shown only when confidence is strong; otherwise the output becomes Neutral/Avoid.",
             "next_day": primary,
@@ -256,14 +286,29 @@ def _model_path(symbol: str, horizon_key: str) -> Path:
 
 
 def get_training_status(symbol: str) -> Dict[str, Any]:
-    status = {"symbol": symbol, "trained": False, "models": {}}
+    status = {"symbol": symbol, "trained": False, "model_pack_available": MODEL_PACK_PATH.exists(), "models": {}}
+    pack = _load_model_pack()
     for config in HORIZONS:
+        pack_pkg = _pack_horizon_package(symbol, config.key)
+        if pack_pkg:
+            status["models"][config.key] = {
+                "available": True,
+                "source": "model_pack.joblib",
+                "trained_at": pack_pkg.get("trained_at"),
+                "samples": pack_pkg.get("samples"),
+                "backtest": pack_pkg.get("backtest"),
+                "model_type": pack_pkg.get("model_type"),
+            }
+            status["trained"] = True
+            continue
+
         path = _model_path(symbol, config.key)
         if path.exists():
             try:
                 package = joblib.load(path)
                 status["models"][config.key] = {
                     "available": True,
+                    "source": str(path.name),
                     "trained_at": package.get("trained_at"),
                     "samples": package.get("samples"),
                     "backtest": package.get("backtest"),
@@ -274,8 +319,14 @@ def get_training_status(symbol: str) -> Dict[str, Any]:
                 status["models"][config.key] = {"available": False, "error": str(exc)}
         else:
             status["models"][config.key] = {"available": False}
+    if pack:
+        status["model_pack"] = {
+            "version": pack.get("version"),
+            "trained_at": pack.get("trained_at"),
+            "symbols": sorted(list((pack.get("symbols") or {}).keys())),
+            "size_mb": _round(MODEL_PACK_PATH.stat().st_size / (1024 * 1024)) if MODEL_PACK_PATH.exists() else None,
+        }
     return status
-
 
 def train_models_for_symbol(df: pd.DataFrame, symbol: str, market_df: pd.DataFrame | None = None) -> Dict[str, Any]:
     prepared = _attach_market_features(df, market_df)
@@ -284,10 +335,10 @@ def train_models_for_symbol(df: pd.DataFrame, symbol: str, market_df: pd.DataFra
         results[config.key] = _train_horizon_model(prepared, symbol, config)
     return {
         "symbol": symbol,
-        "version": "v7",
+        "version": "v9",
         "trained_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "models": results,
-        "message": "Training completed. Version 7 daily auto-learning will continue updating this model after market data is available.",
+        "message": "Training completed. Version 9 training is designed for Kaggle/GitHub Actions, not the free backend runtime.",
     }
 
 
@@ -376,7 +427,7 @@ def _train_horizon_model(df: pd.DataFrame, symbol: str, config: HorizonConfig) -
         "confident_signal_coverage": _round((confident_total / len(y_test) * 100) if len(y_test) else 0),
         "test_samples": int(len(y_test)),
         "confident_samples": confident_total,
-        "note": "Version 7 trained holdout test. Confident-only accuracy can improve because weak setups are filtered as Neutral/Avoid.",
+        "note": "Version 9 trained holdout test. Confident-only accuracy can improve because weak setups are filtered as Neutral/Avoid.",
     }
     package = {
         "symbol": symbol,
@@ -401,11 +452,20 @@ def _train_horizon_model(df: pd.DataFrame, symbol: str, config: HorizonConfig) -
 
 
 def _saved_model_distribution(df: pd.DataFrame, config: HorizonConfig, symbol: str) -> Tuple[Dict[int, float] | None, str, Dict[str, Any]] | None:
-    path = _model_path(symbol, config.key)
-    if not path.exists():
-        return None
+    package = _pack_horizon_package(symbol, config.key)
+    package_source = "model_pack.joblib"
+
+    if package is None:
+        path = _model_path(symbol, config.key)
+        if not path.exists():
+            return None
+        try:
+            package = joblib.load(path)
+            package_source = path.name
+        except Exception:  # noqa: BLE001
+            return None
+
     try:
-        package = joblib.load(path)
         features = package.get("features") or []
         data = df.copy().replace([np.inf, -np.inf], np.nan)
         missing = [f for f in features if f not in data.columns]
@@ -416,13 +476,12 @@ def _saved_model_distribution(df: pd.DataFrame, config: HorizonConfig, symbol: s
             return None
         probs = _ensemble_predict_proba(package.get("models", []), latest_features)[0]
         note = (
-            f"Saved Version 7 symbol-trained ensemble loaded. Trained at {package.get('trained_at')} "
-            f"using {package.get('samples')} samples."
+            f"Saved Version 9 symbol-trained model loaded from {package_source}. "
+            f"Trained at {package.get('trained_at')} using {package.get('samples')} samples."
         )
         return probs, note, package.get("backtest") or _empty_backtest("Saved model has no backtest metadata.")
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return None
-
 
 def _ensemble_predict_proba(models: List[Any], X: pd.DataFrame) -> List[Dict[int, float]]:
     if not models:
@@ -517,7 +576,7 @@ def _ml_distribution(df: pd.DataFrame, config: HorizonConfig, symbol: str) -> Tu
             "confident_samples": confident_total,
             "note": "Backtest uses the latest 25% chronological holdout. It is a demo estimate, not a guarantee.",
         }
-        note = "On-request fallback Random Forest used. Version 7 fallback model used until the next daily auto-learning cycle saves a stronger ensemble."
+        note = "On-request fallback Random Forest used. Version 9 fallback model used until the next GitHub Actions/Kaggle training cycle saves a model pack."
         return probabilities, note, backtest
     except Exception as exc:  # noqa: BLE001
         return None, f"ML model could not run cleanly, using rule-based scoring. Reason: {exc}", _empty_backtest(str(exc))
