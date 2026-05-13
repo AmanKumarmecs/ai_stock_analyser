@@ -1,4 +1,7 @@
 [build]
   base = "frontend"
-  command = "npm ci && npm run build"
+  command = "echo Using committed frontend dist build"
   publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20.19.0"
