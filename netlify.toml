@@ -1,6 +1,7 @@
 [build]
+  base = "frontend"
   command = "echo Using committed frontend dist build"
-  publish = "frontend/dist"
+  publish = "dist"
 
 [build.environment]
   NODE_VERSION = "20.19.0"
