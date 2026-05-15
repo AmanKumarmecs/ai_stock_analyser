@@ -1,6 +1,6 @@
 {
   "version": "v9-free-stack-model-pack",
-  "trained_at": "2026-05-14 14:22:05 UTC",
+  "trained_at": "2026-05-15 14:12:51 UTC",
   "period": "5y",
   "symbols_requested": [
     "RELIANCE",
@@ -25,7 +25,7 @@
     "TATAMOTORS.NS": "No market data found for TATAMOTORS.NS. Free public data may be temporarily blocked, delayed, or unavailable. Details: yfinance Ticker.history: No market data found for this symbol | yfinance download: No market data found for this symbol | Yahoo chart fallback: 404 Client Error: Not Found for url: https://query1.finance.yahoo.com/v8/finance/chart/TATAMOTORS.NS?range=5y&interval=1d&includePrePost=false&events=div%2Csplits"
   },
   "model_pack_file": "model_pack.joblib",
-  "model_pack_size_mb": 28.39,
+  "model_pack_size_mb": 28.57,
   "model_max_mb": 95.0,
   "free_limit_status": "ok"
 }
